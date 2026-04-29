@@ -1,0 +1,43 @@
+# -*- coding: utf-8 -*-
+# 会员Flow定义
+# 适配atguigu_ai框架语法
+
+version: "3.1"
+
+flows:
+  query_member_points:
+    name: 查询会员积分
+    description: 查询用户当前积分和会员等级
+    steps:
+      - action: action_query_member_points
+
+  points_redemption:
+    name: 积分兑换
+    description: 用户使用积分兑换商品
+    steps:
+      - id: check_points
+        action: action_query_member_points
+      - id: show_rewards
+        action: action_show_redeemable_rewards
+      - id: ask_reward
+        collect: reward_id
+        ask_before_filling: true
+        next: validate_reward
+      - id: validate_reward
+        condition: slots.reward_id != "false"
+        then: ask_confirm
+        else: end
+      - id: ask_confirm
+        collect: confirm_redeem
+        ask_before_filling: true
+        next: do_redeem_check
+      - id: do_redeem_check
+        condition: slots.confirm_redeem
+        then: execute_redeem
+        else: end
+      - id: execute_redeem
+        action: action_redeem_points
+        next: final_points
+      - id: final_points
+        action: action_query_member_points
+        next: end

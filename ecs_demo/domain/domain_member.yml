@@ -1,0 +1,42 @@
+# -*- coding: utf-8 -*-
+# 会员模块Domain定义
+# 适配atguigu_ai框架
+
+version: "3.1"
+
+# 会员相关槽位
+slots:
+  reward_id:
+    type: text
+    description: 积分兑换商品ID
+    mappings:
+      - type: controlled
+
+  confirm_redeem:
+    type: bool
+    description: 确认兑换
+
+# 会员相关响应
+responses:
+  utter_ask_reward_id:
+    - text: "请选择要兑换的商品："
+
+  utter_ask_confirm_redeem:
+    - text: "确认兑换该商品吗？"
+      buttons:
+        - title: "确认"
+          payload: "/SetSlots(confirm_redeem=true)"
+        - title: "取消"
+          payload: "/SetSlots(confirm_redeem=false)"
+
+  utter_redeem_success:
+    - text: "兑换成功！"
+
+  utter_points_not_enough:
+    - text: "积分不足，无法兑换。"
+
+# 会员相关Action声明
+actions:
+  - action_query_member_points
+  - action_show_redeemable_rewards
+  - action_redeem_points
