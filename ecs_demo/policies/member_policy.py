@@ -54,8 +54,18 @@ class MemberPolicy(Policy):
         self,
         tracker: "DialogueStateTracker",
     ) -> bool:
-        """只在没有活跃 Flow 时预测，避免打断已有流程。"""
-        return tracker.active_flow is None
+        """只在没有活跃 Flow 且没有待处理的 CompletedStackFrame 时预测。
+
+        如果有 CompletedStackFrame 在栈顶，说明上一个 Flow 刚完成，
+        需要让 EnterpriseSearchPolicy 先处理它，生成询问用户是否还有其他需求的响应。
+        """
+        if tracker.active_flow is not None:
+            return False
+        from atguigu_ai.dialogue_understanding.stack.stack_frame import CompletedStackFrame
+        top = tracker.dialogue_stack.top()
+        if isinstance(top, CompletedStackFrame):
+            return False
+        return True
 
     async def predict(
         self,

@@ -7,9 +7,12 @@ Action系统
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from atguigu_ai.core.tracker import DialogueStateTracker
@@ -602,16 +605,21 @@ class ActionFlowCompleted(Action):
     ) -> ActionResult:
         """压入CompletedStackFrame标记Flow完成。"""
         result = ActionResult()
-        
+
         # 获取刚完成的Flow信息
         completed_flow = kwargs.get("completed_flow", "")
-        
-        # 压入CompletedStackFrame
+
         from atguigu_ai.dialogue_understanding.stack.stack_frame import CompletedStackFrame
-        
+
+        # 防御：如果栈顶已有 CompletedStackFrame，先弹出旧的，防止累积重复消息
+        top = tracker.dialogue_stack.top()
+        if isinstance(top, CompletedStackFrame):
+            logger.debug("Popped existing CompletedStackFrame before pushing new one")
+            tracker.dialogue_stack.pop()
+
         tracker.dialogue_stack.push(CompletedStackFrame(previous_flow_name=completed_flow))
         result.add_event("flow_completed_handled", flow_id=completed_flow)
-        
+
         return result
 
 

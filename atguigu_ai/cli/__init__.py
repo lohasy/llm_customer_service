@@ -81,12 +81,11 @@ def cli(ctx: click.Context, verbose: bool, debug: bool) -> None:
     ctx.obj['verbose'] = verbose
     ctx.obj['debug'] = debug
     
-    # 配置日志级别
+    # 配置日志级别（默认INFO）
+    import logging
     if debug:
-        import logging
         logging.basicConfig(level=logging.DEBUG)
-    elif verbose:
-        import logging
+    else:
         logging.basicConfig(level=logging.INFO)
 
 
