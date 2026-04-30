@@ -13,7 +13,9 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from atguigu_ai.policies.base_policy import Policy, PolicyConfig, PolicyPrediction
 from atguigu_ai.dialogue_understanding.flow import FlowExecutor, FlowsList
-from atguigu_ai.dialogue_understanding.stack.stack_frame import FlowStackFrame
+from atguigu_ai.dialogue_understanding.stack.stack_frame import (
+    FlowStackFrame, InterruptedFlowPendingFrame,
+)
 from atguigu_ai.shared.constants import ACTION_LISTEN
 
 if TYPE_CHECKING:
@@ -113,6 +115,8 @@ class FlowPolicy(Policy):
             self._reset_scoped_slots(tracker, completed_flow)
             # 结束 flow
             tracker.end_flow()
+            # 检查是否有被中断的Flow
+            self._check_interrupted_flow(tracker)
             return PolicyPrediction(
                 action="action_flow_completed",
                 confidence=1.0,
@@ -210,6 +214,8 @@ class FlowPolicy(Policy):
                     if completed_flow:
                         self._reset_scoped_slots(tracker, completed_flow)
                     tracker.end_flow()
+                    # 检查是否有被中断的Flow
+                    self._check_interrupted_flow(tracker)
                     return PolicyPrediction(
                         action="action_flow_completed",
                         confidence=1.0,
@@ -230,7 +236,12 @@ class FlowPolicy(Policy):
                         flow_frame.slot_to_collect = None
                     self.executor.advance_flow(tracker, result.next_step_id)
                     continue
-                
+
+                # CALL 步骤启动了子流程（新 flow 已压入栈顶），继续循环执行子流程
+                if any(e.get("event") == "subflow_called" for e in result.events):
+                    logger.debug("Subflow called, continuing to execute child flow")
+                    continue
+
                 # 没有动作也没有下一步，等待用户输入
                 break
             
@@ -378,12 +389,49 @@ class FlowPolicy(Policy):
     
     def set_flows(self, flows: FlowsList) -> None:
         """设置Flow列表。
-        
+
         Args:
             flows: Flow列表
         """
         self.flows = flows
         self.executor.set_flows(flows)
+
+    def _check_interrupted_flow(
+        self,
+        tracker: "DialogueStateTracker",
+    ) -> None:
+        """检查Flow完成后是否有被中断的Flow需要恢复。
+
+        如果有，压入 InterruptedFlowPendingFrame 等待用户确认。
+
+        Args:
+            tracker: 对话状态追踪器
+        """
+        interrupted_frame = tracker.dialogue_stack.find_interrupted_flow()
+        if interrupted_frame is None:
+            return
+
+        # 清理栈顶残留的 InterruptedFlowPendingFrame（防御性处理）
+        top = tracker.dialogue_stack.top()
+        if isinstance(top, InterruptedFlowPendingFrame):
+            logger.debug("清理残留的 InterruptedFlowPendingFrame")
+            tracker.dialogue_stack.pop()
+
+        # 解析Flow显示名称
+        flow_name = interrupted_frame.flow_id
+        flow_def = self.flows.get_flow(interrupted_frame.flow_id)
+        if flow_def and flow_def.name:
+            flow_name = flow_def.name
+
+        logger.debug(
+            f"发现被中断的Flow: {interrupted_frame.flow_id} "
+            f"(name={flow_name}), 压入确认帧"
+        )
+        tracker.dialogue_stack.push(InterruptedFlowPendingFrame(
+            flow_id=interrupted_frame.flow_id,
+            flow_name=flow_name,
+            flow_step_id=interrupted_frame.step_id,
+        ))
 
 
 # 导出

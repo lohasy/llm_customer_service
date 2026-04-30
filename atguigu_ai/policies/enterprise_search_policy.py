@@ -157,13 +157,15 @@ class EnterpriseSearchPolicy(Policy):
             CannotHandleStackFrame,
             CompletedStackFrame,
             HumanHandoffStackFrame,
+            InterruptedFlowPendingFrame,
         )
         return isinstance(frame, (
-            SearchStackFrame, 
-            ChitChatStackFrame, 
+            SearchStackFrame,
+            ChitChatStackFrame,
             CannotHandleStackFrame,
             CompletedStackFrame,
             HumanHandoffStackFrame,
+            InterruptedFlowPendingFrame,
         ))
     
     async def predict(
@@ -207,8 +209,11 @@ class EnterpriseSearchPolicy(Policy):
         from atguigu_ai.dialogue_understanding.stack.stack_frame import (
             CompletedStackFrame as CompletedFrame,
             HumanHandoffStackFrame as HandoffFrame,
+            InterruptedFlowPendingFrame as InterruptedFrame,
         )
-        needs_immediate_handling = isinstance(top_frame, (CompletedFrame, HandoffFrame))
+        needs_immediate_handling = isinstance(top_frame, (
+            CompletedFrame, HandoffFrame, InterruptedFrame,
+        ))
         
         if (tracker.latest_action_name 
             and tracker.latest_action_name != "action_listen"
@@ -224,7 +229,12 @@ class EnterpriseSearchPolicy(Policy):
         # 根据栈帧类型分发处理
         if isinstance(top_frame, CompletedStackFrame):
             return await self._handle_completed_frame(tracker, top_frame, domain)
-        
+
+        if isinstance(top_frame, InterruptedFrame):
+            return await self._handle_interrupted_flow_pending_frame(
+                tracker, top_frame, domain
+            )
+
         if isinstance(top_frame, HumanHandoffStackFrame):
             return await self._handle_human_handoff_frame(tracker, top_frame, domain)
         
@@ -437,6 +447,139 @@ class EnterpriseSearchPolicy(Policy):
             },
         )
     
+    async def _handle_interrupted_flow_pending_frame(
+        self,
+        tracker: "DialogueStateTracker",
+        frame: Any,
+        domain: Optional["Domain"],
+    ) -> PolicyPrediction:
+        """处理InterruptedFlowPendingFrame - 询问用户是否恢复被中断的Flow。
+
+        两阶段处理：
+        1. asked=False：询问用户（带按钮），设置 asked=True
+        2. asked=True：根据 slot resume_interrupted 决定恢复或丢弃
+        """
+        flow_name = getattr(frame, 'flow_name', '') or getattr(frame, 'flow_id', '')
+        logger.debug(
+            f"InterruptedFlowPendingFrame processing: flow={flow_name}, asked={frame.asked}"
+        )
+
+        if not getattr(frame, 'asked', False):
+            # 阶段一：询问用户是否恢复
+            frame.asked = True
+            logger.info(f"询问用户是否恢复被中断的Flow: {flow_name}")
+
+            return PolicyPrediction(
+                action="action_send_text",
+                confidence=0.9,
+                policy_name=self.name,
+                metadata={
+                    "text": f"要继续之前的{flow_name}吗？",
+                    "buttons": [
+                        {"title": "继续", "payload": "/SetSlots(resume_interrupted=true)"},
+                        {"title": "不用了", "payload": "/SetSlots(resume_interrupted=false)"},
+                    ],
+                    "interrupted_flow_pending": True,
+                },
+            )
+
+        # 阶段二：用户已回应（或隐式拒绝）
+        resume_value = tracker.get_slot("resume_interrupted")
+
+        if resume_value is None:
+            # 检查是否是同轮重入（刚发送询问，等用户回应）
+            if (tracker.latest_action_name
+                    and tracker.latest_action_name == "action_send_text"
+                    and tracker.latest_action_name != "action_listen"):
+                logger.debug("刚发送中断恢复询问，同轮等待用户回应")
+                return PolicyPrediction(
+                    action="action_listen",
+                    confidence=1.0,
+                    policy_name=self.name,
+                )
+            # 新一轮但用户说了别的话（隐式拒绝）
+            logger.info(f"用户未回应中断恢复询问，视为隐式拒绝: {frame.flow_id}")
+            tracker.set_slot("resume_interrupted", None)
+            return self._discard_interrupted_flow(tracker, frame, domain)
+
+        # 清理 slot 避免下次误判
+        tracker.set_slot("resume_interrupted", None)
+
+        if str(resume_value).lower() in ("true", "1", "yes"):
+            # 用户点击"继续"
+            logger.info(f"用户选择恢复被中断的Flow: {frame.flow_id}")
+            tracker.dialogue_stack.resume_interrupted_flow(frame.flow_id)
+            tracker.dialogue_stack.pop()  # 弹出确认帧
+            tracker.record_pattern("interrupted_flow_resumed")
+            return PolicyPrediction(
+                action="action_send_text",
+                confidence=0.95,
+                policy_name=self.name,
+                metadata={
+                    "text": f"好的，我们继续之前的{flow_name}。",
+                    "flow_resumed": True,
+                    "flow_id": frame.flow_id,
+                },
+            )
+        else:
+            # 用户点击"不用了"
+            logger.info(f"用户拒绝恢复Flow: {frame.flow_id}")
+            return self._discard_interrupted_flow(tracker, frame, domain)
+
+    def _discard_interrupted_flow(
+        self,
+        tracker: "DialogueStateTracker",
+        frame: Any,
+        domain: Optional["Domain"] = None,
+    ) -> PolicyPrediction:
+        """丢弃被中断的Flow，检查是否还有更多中断Flow需要处理。
+
+        Args:
+            tracker: 对话状态追踪器
+            frame: 当前 InterruptedFlowPendingFrame
+
+        Returns:
+            预测结果
+        """
+        from atguigu_ai.dialogue_understanding.stack.stack_frame import (
+            InterruptedFlowPendingFrame,
+            CompletedStackFrame,
+        )
+
+        tracker.dialogue_stack.remove_interrupted_flow(frame.flow_id)
+        tracker.dialogue_stack.pop()  # 弹出确认帧
+        tracker.record_pattern("interrupted_flow_discarded")
+
+        # 检查是否还有更多被中断的Flow
+        next_interrupted = tracker.dialogue_stack.find_interrupted_flow()
+        if next_interrupted is not None:
+            flow_name = next_interrupted.flow_id
+            logger.debug(f"还有下一个被中断的Flow: {flow_name}")
+            tracker.dialogue_stack.push(InterruptedFlowPendingFrame(
+                flow_id=next_interrupted.flow_id,
+                flow_name=flow_name,
+                flow_step_id=next_interrupted.step_id,
+            ))
+            return PolicyPrediction(
+                action="action_listen",
+                confidence=0.9,
+                policy_name=self.name,
+            )
+
+        # 所有中断Flow已处理完毕，发送完成提示
+        completed_text = "还有什么我可以帮您的吗？"
+        if domain:
+            responses = domain.get_response("utter_can_do_something_else")
+            if responses:
+                import random
+                completed_text = random.choice(responses).text
+        return PolicyPrediction(
+            action="action_send_text",
+            confidence=0.9,
+            policy_name=self.name,
+            metadata={"text": completed_text},
+        )
+
     async def _handle_human_handoff_frame(
         self,
         tracker: "DialogueStateTracker",

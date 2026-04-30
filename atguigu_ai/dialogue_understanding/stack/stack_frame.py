@@ -286,32 +286,74 @@ class CompletedStackFrame(StackFrame):
 @dataclass
 class HumanHandoffStackFrame(StackFrame):
     """人工转接栈帧。
-    
+
     表示需要将对话转接给人工客服。
     由 ActionHumanHandoff 压入，由 EnterpriseSearchPolicy 处理。
-    
+
     Attributes:
         reason: 转接原因
     """
-    
+
     reason: str = ""
-    
+
     @classmethod
     def frame_type(cls) -> str:
         """返回帧类型标识。"""
         return "human_handoff"
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "HumanHandoffStackFrame":
         """从字典创建帧实例。"""
         state = data.get("state", FrameState.ACTIVE.value)
         if isinstance(state, str):
             state = FrameState(state)
-        
+
         return HumanHandoffStackFrame(
             frame_id=data.get("frame_id", generate_frame_id()),
             state=state,
             reason=data.get("reason", ""),
+        )
+
+
+@register_frame_type
+@dataclass
+class InterruptedFlowPendingFrame(StackFrame):
+    """中断Flow恢复确认帧。
+
+    当Flow完成后发现下方有被中断的Flow时压入此帧，
+    由 EnterpriseSearchPolicy 处理，向用户确认是否恢复被中断的Flow。
+
+    Attributes:
+        flow_id: 被中断的Flow ID
+        flow_name: 被中断的Flow显示名称
+        flow_step_id: 中断时所在的步骤ID
+        asked: 是否已向用户发送过恢复询问
+    """
+
+    flow_id: str = ""
+    flow_name: str = ""
+    flow_step_id: str = ""
+    asked: bool = False
+
+    @classmethod
+    def frame_type(cls) -> str:
+        """返回帧类型标识。"""
+        return "interrupted_flow_pending"
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "InterruptedFlowPendingFrame":
+        """从字典创建帧实例。"""
+        state = data.get("state", FrameState.ACTIVE.value)
+        if isinstance(state, str):
+            state = FrameState(state)
+
+        return InterruptedFlowPendingFrame(
+            frame_id=data.get("frame_id", generate_frame_id()),
+            state=state,
+            flow_id=data.get("flow_id", ""),
+            flow_name=data.get("flow_name", ""),
+            flow_step_id=data.get("flow_step_id", ""),
+            asked=data.get("asked", False),
         )
 
 
@@ -349,6 +391,7 @@ __all__ = [
     "CannotHandleStackFrame",
     "CompletedStackFrame",
     "HumanHandoffStackFrame",
+    "InterruptedFlowPendingFrame",
     "FrameState",
     "FlowFrameType",
     "generate_frame_id",

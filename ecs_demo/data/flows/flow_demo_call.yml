@@ -1,0 +1,41 @@
+# -*- coding: utf-8 -*-
+# CALL 步骤演示：父子流程嵌套
+# 演示 Flow A (order_with_member_call) 通过 CALL 步骤调用子流程 B (query_member_points)
+# 子流程完成后自动恢复到父流程继续执行
+
+version: "3.1"
+
+flows:
+  # ============================================================
+  # 父流程：订单查询（含会员信息）
+  # 流程步骤：
+  #   1. 设置查询条件 → 2. 选择订单 → 3. 查看订单详情
+  #   → 4. CALL 子流程 query_member_points（查询会员积分）
+  #   → 5. 子流程完成后回到这里，结束
+  # ============================================================
+  order_with_member_call:
+    name: 订单查询（含会员信息）
+    description: 查询订单详情后展示会员积分信息（演示CALL嵌套子流程）
+    steps:
+      # 第1步：设置订单查询条件
+      - set_slots:
+          - goto: action_ask_order_id_before_completed_3_days
+
+      # 第2步：选择要查询的订单
+      - collect: order_id
+        next:
+          - if: slots.order_id != "false"
+            then: get_order_detail       # 跳转到第3步
+          - else: END                    # 用户取消，结束
+
+      # 第3步：展示订单详情
+      - id: get_order_detail
+        action: action_get_order_detail
+        next: call_member               # 进入第4步
+
+      # 第4步：CALL 子流程 — 查询会员积分
+      # 子流程 query_member_points 会被压入栈顶执行
+      # 子流程完成后，栈帧弹出，父流程恢复到 next 指定的步骤
+      - id: call_member
+        call: query_member_points        # 调用已有的会员积分子流程
+        next: END                        # 子流程返回后结束父流程

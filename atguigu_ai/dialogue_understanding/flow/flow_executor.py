@@ -439,9 +439,14 @@ class FlowExecutor:
     ) -> ExecutionResult:
         """执行调用步骤（调用子Flow，完成后返回）。"""
         result = ExecutionResult()
-        
+
         if step.flow_id:
-            # 压入当前Flow状态
+            # 先把父流程推进到返回步骤（step.next），再压入子流程
+            # 这样当子流程完成后，父流程的 step_id 已正确指向返回位置
+            if step.next:
+                self.advance_flow(tracker, step.next)
+
+            # 压入子流程（会放在栈顶，成为新的 active_flow）
             tracker.start_flow(step.flow_id)
             result.events.append({
                 "event": "subflow_called",
@@ -449,7 +454,7 @@ class FlowExecutor:
                 "child_flow": step.flow_id,
             })
             result.metadata["return_step"] = step.next
-        
+
         return result
     
     def _evaluate_condition(

@@ -609,10 +609,23 @@ class ActionFlowCompleted(Action):
         # 获取刚完成的Flow信息
         completed_flow = kwargs.get("completed_flow", "")
 
-        from atguigu_ai.dialogue_understanding.stack.stack_frame import CompletedStackFrame
+        from atguigu_ai.dialogue_understanding.stack.stack_frame import (
+            CompletedStackFrame,
+            InterruptedFlowPendingFrame,
+        )
+
+        # 如果栈顶已有 InterruptedFlowPendingFrame（由 FlowPolicy 在检测到中断Flow时压入），
+        # 跳过 CompletedStackFrame，交由 EnterpriseSearchPolicy 处理中断恢复确认
+        top = tracker.dialogue_stack.top()
+        if isinstance(top, InterruptedFlowPendingFrame):
+            logger.debug(
+                "InterruptedFlowPendingFrame 已在栈顶，跳过 CompletedStackFrame 压入，"
+                "交由 EnterpriseSearchPolicy 处理中断恢复确认"
+            )
+            result.add_event("interrupted_flow_pending", flow_id=top.flow_id)
+            return result
 
         # 防御：如果栈顶已有 CompletedStackFrame，先弹出旧的，防止累积重复消息
-        top = tracker.dialogue_stack.top()
         if isinstance(top, CompletedStackFrame):
             logger.debug("Popped existing CompletedStackFrame before pushing new one")
             tracker.dialogue_stack.pop()

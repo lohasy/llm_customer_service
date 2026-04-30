@@ -84,15 +84,31 @@ class StartFlowCommand(Command):
             if self.flow not in flow_ids:
                 # Flow不存在，返回空事件列表
                 return []
-        
+
+        # 中断当前活跃的Flow（如果有且不是同一个Flow）
+        # 注意：仅在用户触发的StartFlowCommand中做中断，CALL步骤（调用
+        # tracker.start_flow() 直接启动子流程）不受影响
+        active_frame = tracker.dialogue_stack.active_flow_frame()
+        if active_frame is not None and active_frame.flow_id != self.flow:
+            active_frame.interrupt()
+            events = [{
+                "event": "flow_interrupted",
+                "flow_id": active_frame.flow_id,
+                "flow_step_id": active_frame.step_id,
+                "timestamp": None,
+            }]
+        else:
+            events = []
+
         # 启动Flow
         tracker.start_flow(self.flow)
-        
-        return [{
+
+        events.append({
             "event": "flow_started",
             "flow_id": self.flow,
             "timestamp": None,  # 由tracker设置
-        }]
+        })
+        return events
     
     def to_dsl(self) -> str:
         """转换为DSL字符串。"""

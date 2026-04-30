@@ -343,11 +343,11 @@ class CommandProcessor:
         tracker: "DialogueStateTracker",
     ) -> List[Command]:
         """基于 force_slot_filling 机制，过滤 collect 步骤中的无效命令。
-        
+
         当处于 collect 步骤（正在收集某个槽位）时：
         1. 只保留设置当前槽位的 SetSlotCommand
         2. 丢弃其他 SetSlotCommand（防止 LLM 同时设置多个槽位）
-        3. 丢弃 StartFlowCommand（防止 LLM 错误触发新流程）
+        3. 保留 StartFlowCommand（以支持 Flow 中断/恢复机制）
         4. 保留其他命令（如 CancelFlowCommand）
         
         Args:
@@ -377,10 +377,13 @@ class CommandProcessor:
                         f"当前正在收集: {slot_to_collect}"
                     )
             elif isinstance(command, StartFlowCommand):
-                # collect 步骤中禁止启动新流程（防止 LLM 误判用户意图）
-                logger.warning(
-                    f"[force_slot_filling] 忽略 collect 步骤中的 StartFlowCommand: {command.flow}"
+                # collect 步骤中允许启动新流程以支持 Flow 中断/恢复机制
+                # StartFlowCommand.run() 会中断当前活跃 Flow 并启动新 Flow
+                logger.info(
+                    f"[force_slot_filling] collect 步骤中检测到 StartFlowCommand，"
+                    f"允许通过以支持 Flow 中断: {command.flow}"
                 )
+                filtered.append(command)
             else:
                 # 保留其他命令（如 CancelFlowCommand、ChitChatAnswerCommand 等）
                 filtered.append(command)

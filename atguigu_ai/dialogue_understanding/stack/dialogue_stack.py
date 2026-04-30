@@ -180,7 +180,7 @@ class DialogueStack:
     
     def interrupt_top_flow(self) -> Optional[FlowStackFrame]:
         """中断栈顶的Flow。
-        
+
         Returns:
             被中断的Flow帧，如果没有则返回None
         """
@@ -188,7 +188,49 @@ class DialogueStack:
         if flow_frame:
             flow_frame.interrupt()
         return flow_frame
-    
+
+    def find_interrupted_flow(self) -> Optional[FlowStackFrame]:
+        """查找栈中第一个被中断的Flow帧（从栈顶向下）。
+
+        Returns:
+            被中断的Flow帧，如果没有则返回None
+        """
+        for frame in self:
+            if isinstance(frame, FlowStackFrame) and frame.state == FrameState.INTERRUPTED:
+                return frame
+        return None
+
+    def resume_interrupted_flow(self, flow_id: str) -> Optional[FlowStackFrame]:
+        """将被中断的Flow恢复为ACTIVE状态。
+
+        Args:
+            flow_id: 要恢复的Flow ID
+
+        Returns:
+            恢复后的Flow帧，如果未找到则返回None
+        """
+        flow_frame = self.find_flow_frame(flow_id)
+        if flow_frame and flow_frame.state == FrameState.INTERRUPTED:
+            flow_frame.state = FrameState.ACTIVE
+            return flow_frame
+        return None
+
+    def remove_interrupted_flow(self, flow_id: str) -> Optional[FlowStackFrame]:
+        """从栈中移除被中断的Flow帧（用户拒绝恢复时调用）。
+
+        Args:
+            flow_id: 要移除的Flow ID
+
+        Returns:
+            被移除的Flow帧，如果未找到则返回None
+        """
+        for i, frame in enumerate(self.frames):
+            if (isinstance(frame, FlowStackFrame)
+                and frame.flow_id == flow_id
+                and frame.state == FrameState.INTERRUPTED):
+                return self.frames.pop(i)
+        return None
+
     # ========== 帧查找操作 ==========
     
     def find_frame(self, frame_id: str) -> Optional[StackFrame]:

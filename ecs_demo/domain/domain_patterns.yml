@@ -9,6 +9,9 @@ slots:
   user_id:
     type: text
     description: 用户ID
+  resume_interrupted:
+    type: bool
+    description: 是否恢复被中断的Flow（由中断恢复按钮设置）
 
 # 通用响应
 responses:
