@@ -15,4 +15,6 @@ policies:
   - name: MemberPolicy
   - name: EnterpriseSearchPolicy
     llm: default
-    vector_store: addons.information_retrieval.GraphRAG
+    # 知识库切换：GraphRAG(Neo4j) 或 FastAPIRetriever(外部服务)
+    # vector_store: addons.information_retrieval.GraphRAG
+    vector_store: addons.fastapi_retriever.FastAPIRetriever

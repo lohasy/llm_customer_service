@@ -9,11 +9,15 @@ models:
     api_key: ${DASHSCOPE_API_KEY}
     temperature: 0.1
 
-# 向量存储配置 (Neo4j)
+# 向量存储配置
+# GraphRAG (Neo4j) 模式：
+#   uri: bolt://localhost:7687
+#   user: neo4j
+#   password: ${NEO4J_PASSWORD}
+#
+# FastAPI 知识库模式：
 vector_store:
-  uri: bolt://localhost:7687
-  user: neo4j
-  password: ${NEO4J_PASSWORD}
+  base_url: http://localhost:8001
 
 # 数据库配置 (MySQL)
 database:
